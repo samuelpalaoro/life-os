@@ -77,6 +77,10 @@ export function validateAppStateData(raw: unknown): ValidationResult {
         category: evt.category || 'Geral',
         isFixed: Boolean(evt.isFixed),
         completed: Boolean(evt.completed),
+        // Backward-compatible recurrence defaults for old records
+        recurrence: evt.recurrence || 'none',
+        recurrenceEndDate: evt.recurrenceEndDate,
+        recurrenceGroupId: evt.recurrenceGroupId,
       });
     }
   }

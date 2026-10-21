@@ -30,6 +30,8 @@ export interface Task {
   notes?: string;
 }
 
+export type EventRecurrenceType = 'none' | 'daily' | 'weekly';
+
 export interface CalendarEvent {
   id: string;
   title: string;
@@ -44,6 +46,10 @@ export interface CalendarEvent {
   projectId?: string;
   isFixed: boolean; // true = fixed appointment, false = time-block work
   completed?: boolean;
+  // Recurrence fields (optional – old records default to 'none')
+  recurrence?: EventRecurrenceType;
+  recurrenceEndDate?: string; // YYYY-MM-DD
+  recurrenceGroupId?: string; // shared ID for all occurrences of the same series
 }
 
 export interface JournalEntry {
