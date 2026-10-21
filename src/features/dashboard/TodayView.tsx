@@ -1,20 +1,33 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   CheckCircle2,
   Circle,
   Clock,
-  Calendar as CalendarIcon,
   Plus,
-  BookOpen,
-  ArrowRight,
-  Flame,
   Trash2,
-  Sparkles,
+  Edit2,
+  Check,
+  X,
+  Flame,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { Task, Priority } from '../../types';
 import { getTodayKey, formatDateBR } from '../../lib/dateUtils';
 import confetti from 'canvas-confetti';
+
+interface ScheduleItem {
+  id: string;
+  source: 'event' | 'task';
+  title: string;
+  startTime: string; // HH:mm or '99:99' for untimed tasks
+  endTime?: string;
+  isCompleted: boolean;
+  priority?: Priority;
+  isFixed?: boolean;
+  isFocus?: boolean;
+  originalTask?: Task;
+  originalEventId?: string;
+}
 
 export const TodayView: React.FC = () => {
   const {
@@ -24,48 +37,166 @@ export const TodayView: React.FC = () => {
     deleteTask,
     toggleTaskStatus,
     setFocusTaskIds,
-    setCurrentView,
+    toggleEventCompleted,
+    deleteEvent,
+    updateEvent,
   } = useApp();
 
   const todayKey = getTodayKey();
-  const todayDate = new Date();
 
-  // Quick task input state
+  // 1. Live real-time clock updating every second
+  const [currentTime, setCurrentTime] = useState<Date>(new Date());
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Inline editing state for schedule items
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingTitle, setEditingTitle] = useState('');
+  const [editingTime, setEditingTime] = useState('');
+
+  // 2. Add Task form state (located at bottom)
+  const [showAddForm, setShowAddForm] = useState(false);
   const [taskTitle, setTaskTitle] = useState('');
   const [taskTime, setTaskTime] = useState('');
   const [taskPriority, setTaskPriority] = useState<Priority>('normal');
-  const [isInputFocused, setIsInputFocused] = useState(false);
 
-  // Filter tasks for today
-  const todayTasks = state.tasks
-    .filter((t) => t.dueDate === todayKey || (!t.dueDate && t.status !== 'completed'))
-    .sort((a, b) => {
-      // Completed at bottom
-      if (a.status === 'completed' && b.status !== 'completed') return 1;
-      if (a.status !== 'completed' && b.status === 'completed') return -1;
-      // Scheduled time
-      if (a.plannedTime && b.plannedTime) return a.plannedTime.localeCompare(b.plannedTime);
-      if (a.plannedTime) return -1;
-      if (b.plannedTime) return 1;
-      // Priority weighting
-      const pMap = { urgent: 4, high: 3, normal: 2, low: 1 };
-      return (pMap[b.priority] || 2) - (pMap[a.priority] || 2);
+  // Tasks for today
+  const todayTasks = state.tasks.filter(
+    (t) => t.dueDate === todayKey || (!t.dueDate && t.status !== 'completed')
+  );
+
+  // Events for today
+  const todayEvents = state.events.filter((e) => e.date === todayKey);
+
+  // Unify events and tasks into one single streamlined chronological schedule
+  const scheduleItems: ScheduleItem[] = [];
+
+  // Add events
+  todayEvents.forEach((evt) => {
+    scheduleItems.push({
+      id: `evt-${evt.id}`,
+      source: 'event',
+      title: evt.title,
+      startTime: evt.startTime,
+      endTime: evt.endTime,
+      isCompleted: !!evt.completed,
+      isFixed: evt.isFixed,
+      originalEventId: evt.id,
     });
+  });
 
-  const completedCount = todayTasks.filter((t) => t.status === 'completed').length;
-  const totalCount = todayTasks.length;
-  const progressPercent = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+  // Add tasks
+  todayTasks.forEach((t) => {
+    const isFocus = state.preferences.focusTaskIds.includes(t.id);
+    scheduleItems.push({
+      id: `task-${t.id}`,
+      source: 'task',
+      title: t.title,
+      startTime: t.plannedTime || '99:99',
+      isCompleted: t.status === 'completed',
+      priority: t.priority,
+      isFocus,
+      originalTask: t,
+    });
+  });
 
-  // Up to 3 main daily focus priorities
-  const focusTasks = state.tasks.filter((t) => state.preferences.focusTaskIds.includes(t.id));
+  // Sort schedule items:
+  // 1. Incompleted first, completed last
+  // 2. Chronological by startTime (items with time come first, untimed come after)
+  // 3. Priority weighting if same time
+  const priorityWeight: Record<Priority, number> = { urgent: 4, high: 3, normal: 2, low: 1 };
+  scheduleItems.sort((a, b) => {
+    if (a.isCompleted !== b.isCompleted) {
+      return a.isCompleted ? 1 : -1;
+    }
+    if (a.startTime !== b.startTime) {
+      return a.startTime.localeCompare(b.startTime);
+    }
+    const weightA = a.priority ? priorityWeight[a.priority] : 2;
+    const weightB = b.priority ? priorityWeight[b.priority] : 2;
+    return weightB - weightA;
+  });
 
-  // Today's events in chronological order
-  const todayEvents = state.events
-    .filter((e) => e.date === todayKey)
-    .sort((a, b) => a.startTime.localeCompare(b.startTime));
+  // Toggling completion
+  const handleToggleItem = (item: ScheduleItem) => {
+    if (item.source === 'task' && item.originalTask) {
+      const willBeCompleted = !item.isCompleted;
+      toggleTaskStatus(item.originalTask.id);
+      if (willBeCompleted) {
+        confetti({
+          particleCount: 30,
+          spread: 50,
+          origin: { y: 0.8 },
+          colors: ['#EA580C', '#F97316', '#10B981', '#754DF6'],
+        });
+      }
+    } else if (item.source === 'event' && item.originalEventId) {
+      const willBeCompleted = !item.isCompleted;
+      toggleEventCompleted(item.originalEventId);
+      if (willBeCompleted) {
+        confetti({
+          particleCount: 30,
+          spread: 50,
+          origin: { y: 0.8 },
+          colors: ['#EA580C', '#F97316', '#10B981', '#754DF6'],
+        });
+      }
+    }
+  };
 
-  // Quick add task handler
-  const handleQuickAdd = (e: React.FormEvent) => {
+  // Delete item
+  const handleDeleteItem = (item: ScheduleItem) => {
+    if (item.source === 'task' && item.originalTask) {
+      deleteTask(item.originalTask.id);
+    } else if (item.source === 'event' && item.originalEventId) {
+      deleteEvent(item.originalEventId);
+    }
+  };
+
+  // Start inline editing
+  const handleStartEdit = (item: ScheduleItem) => {
+    setEditingId(item.id);
+    setEditingTitle(item.title);
+    setEditingTime(item.startTime === '99:99' ? '' : item.startTime);
+  };
+
+  // Save inline edit
+  const handleSaveEdit = (item: ScheduleItem) => {
+    if (!editingTitle.trim()) return;
+    if (item.source === 'task' && item.originalTask) {
+      updateTask(item.originalTask.id, {
+        title: editingTitle.trim(),
+        plannedTime: editingTime.trim() || undefined,
+      });
+    } else if (item.source === 'event' && item.originalEventId) {
+      updateEvent(item.originalEventId, {
+        title: editingTitle.trim(),
+        startTime: editingTime.trim() || item.startTime,
+      });
+    }
+    setEditingId(null);
+  };
+
+  // Toggle priority focus
+  const toggleFocus = (taskId: string) => {
+    const current = state.preferences.focusTaskIds;
+    if (current.includes(taskId)) {
+      setFocusTaskIds(current.filter((id) => id !== taskId));
+    } else {
+      if (current.length >= 3) {
+        setFocusTaskIds([...current.slice(1), taskId]);
+      } else {
+        setFocusTaskIds([...current, taskId]);
+      }
+    }
+  };
+
+  // Handle Quick Add Task Submit
+  const handleAddTaskSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!taskTitle.trim()) return;
 
@@ -85,385 +216,314 @@ export const TodayView: React.FC = () => {
     setTaskTitle('');
     setTaskTime('');
     setTaskPriority('normal');
+    setShowAddForm(false);
   };
 
-  const handleToggle = (task: Task) => {
-    const isCompleted = task.status === 'completed';
-    toggleTaskStatus(task.id);
-    if (!isCompleted) {
-      confetti({
-        particleCount: 35,
-        spread: 55,
-        origin: { y: 0.8 },
-        colors: ['#754DF6', '#F6533C', '#10B981', '#F59E0B'],
-      });
-    }
-  };
-
-  const toggleFocus = (taskId: string) => {
-    const current = state.preferences.focusTaskIds;
-    if (current.includes(taskId)) {
-      setFocusTaskIds(current.filter((id) => id !== taskId));
-    } else {
-      if (current.length >= 3) {
-        setFocusTaskIds([...current.slice(1), taskId]);
-      } else {
-        setFocusTaskIds([...current, taskId]);
-      }
-    }
-  };
-
-  const priorityStyles: Record<Priority, { label: string; badge: string; dot: string }> = {
+  const priorityBadge: Record<Priority, { label: string; class: string }> = {
     urgent: {
       label: 'Urgente',
-      badge: 'bg-coral-50 text-coral-600 dark:bg-coral-500/10 dark:text-coral-400 border border-coral-200/60 dark:border-coral-500/30',
-      dot: 'bg-coral-500',
+      class: 'text-amber-500/90 dark:text-amber-400 bg-amber-500/10 border-amber-500/30',
     },
     high: {
       label: 'Alta',
-      badge: 'bg-honey-50 text-honey-600 dark:bg-honey-500/10 dark:text-honey-400 border border-honey-200/60 dark:border-honey-500/30',
-      dot: 'bg-honey-500',
+      class: 'text-orange-500/90 dark:text-orange-400 bg-orange-500/10 border-orange-500/30',
     },
     normal: {
       label: 'Normal',
-      badge: 'bg-brand-50 text-brand-600 dark:bg-brand-500/10 dark:text-brand-300 border border-brand-100 dark:border-brand-500/30',
-      dot: 'bg-brand-400',
+      class: 'text-stone-500 dark:text-stone-400 bg-stone-500/10 border-stone-500/20',
     },
     low: {
       label: 'Baixa',
-      badge: 'bg-canvas-subtle text-ink-secondary dark:bg-night-card dark:text-ink-muted border border-canvas-muted dark:border-night-border',
-      dot: 'bg-ink-muted',
+      class: 'text-stone-400 dark:text-stone-500 bg-stone-500/5 border-transparent',
     },
   };
 
   return (
-    <div className="w-full max-w-3xl mx-auto space-y-6 sm:space-y-7 animate-fadeIn">
-      {/* Editorial Header */}
-      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3 pb-4 sm:pb-5 border-b border-canvas-subtle dark:border-night-border">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2 mb-1 flex-wrap">
-            <span className="text-[11px] font-mono uppercase tracking-wider font-semibold text-brand-600 dark:text-brand-400">
-              Planejamento Diário
-            </span>
-            {totalCount > 0 && (
-              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-brand-50 dark:bg-brand-900/30 text-brand-700 dark:text-brand-300 font-medium">
-                {progressPercent}% feito ({completedCount}/{totalCount})
-              </span>
-            )}
-          </div>
-          <h1 className="text-2xl sm:text-4xl font-serif font-medium text-ink-primary dark:text-white tracking-tight">
-            Hoje
-          </h1>
-          <p className="text-xs text-ink-secondary dark:text-ink-muted mt-0.5 capitalize font-medium">
-            {formatDateBR(todayDate, "EEEE, d 'de' MMMM")}
-          </p>
-        </div>
+    <div className="w-full max-w-2xl mx-auto space-y-6 animate-fadeIn pb-8">
+      {/* ========================================================================= */}
+      {/* 1 & 2. CENTRALIZED DATE & TIME                                           */}
+      {/* Minimal, elegant, dark premium typographic hierarchy                      */}
+      {/* ========================================================================= */}
+      <section className="text-center pt-2 sm:pt-4 pb-2">
+        {/* Date: moderate prominence, elegant, readable */}
+        <p className="text-xs sm:text-sm font-medium tracking-wide text-stone-500 dark:text-stone-400 capitalize">
+          {formatDateBR(currentTime, "EEEE, d 'de' MMMM 'de' yyyy")}
+        </p>
 
-        {/* Quick link to write in journal */}
-        <button
-          onClick={() => setCurrentView('journal')}
-          className="interactive-tap self-start sm:self-auto min-h-[44px] flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-medium text-ink-secondary dark:text-ink-muted hover:text-brand-600 dark:hover:text-brand-300 bg-white dark:bg-night-surface border border-canvas-subtle dark:border-night-border shadow-soft hover:border-brand-200 transition-all"
-        >
-          <BookOpen className="w-4 h-4 text-brand-500 flex-shrink-0" />
-          <span>Escrever no Diário</span>
-        </button>
-      </div>
+        {/* Time: larger prominence, clean, live updating */}
+        <h1 className="text-4xl sm:text-6xl font-light tracking-tight text-ink-primary dark:text-stone-100 font-mono mt-1 select-none">
+          {formatDateBR(currentTime, 'HH:mm')}
+          <span className="text-base sm:text-lg text-brand-500/80 dark:text-brand-400/80 font-normal ml-1">
+            {formatDateBR(currentTime, ':ss')}
+          </span>
+        </h1>
+      </section>
 
-      {/* Progress line indicator (subtle & elegant) */}
-      {totalCount > 0 && (
-        <div className="w-full bg-canvas-subtle dark:bg-night-border h-1.5 rounded-full overflow-hidden">
-          <div
-            className="h-full bg-gradient-to-r from-brand-500 to-mint-500 transition-all duration-500 ease-out"
-            style={{ width: `${progressPercent}%` }}
-          />
-        </div>
-      )}
-
-      {/* Quick Task Capture Bar - Fully responsive, wraps gracefully on 320px */}
-      <form
-        onSubmit={handleQuickAdd}
-        className={`bg-white dark:bg-night-surface rounded-2xl p-2 sm:p-2.5 shadow-soft border transition-all ${
-          isInputFocused
-            ? 'border-brand-500 shadow-glow-brand ring-2 ring-brand-500/10'
-            : 'border-canvas-subtle dark:border-night-border hover:border-brand-300/60'
-        } flex flex-col gap-2`}
-      >
-        <div className="flex items-center gap-2 px-1 sm:px-2">
-          <div className="w-2 h-2 rounded-full bg-brand-500 animate-pulse flex-shrink-0" />
-          <input
-            type="text"
-            placeholder="O que precisa ser feito hoje?"
-            value={taskTitle}
-            onFocus={() => setIsInputFocused(true)}
-            onBlur={() => setIsInputFocused(false)}
-            onChange={(e) => setTaskTitle(e.target.value)}
-            className="w-full text-xs sm:text-sm bg-transparent border-none outline-none text-ink-primary dark:text-white placeholder:text-ink-muted/70 py-1"
-          />
-        </div>
-
-        <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-canvas-subtle dark:border-night-border px-1 sm:px-2">
-          <div className="flex items-center gap-2 flex-wrap">
-            {/* Time Picker */}
-            <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-canvas-light dark:bg-night-card text-ink-secondary dark:text-ink-muted border border-canvas-subtle dark:border-night-border min-h-[38px]">
-              <Clock className="w-3.5 h-3.5 text-brand-500 flex-shrink-0" />
-              <input
-                type="time"
-                value={taskTime}
-                onChange={(e) => setTaskTime(e.target.value)}
-                title="Horário planejado"
-                className="text-xs bg-transparent border-none outline-none font-mono w-16 text-ink-primary dark:text-white"
-              />
-            </div>
-
-            {/* Priority Select */}
-            <select
-              value={taskPriority}
-              onChange={(e) => setTaskPriority(e.target.value as Priority)}
-              className="text-xs px-2.5 py-1.5 bg-canvas-light dark:bg-night-card border border-canvas-subtle dark:border-night-border rounded-lg text-ink-primary dark:text-white outline-none cursor-pointer min-h-[38px]"
-            >
-              <option value="normal">Normal</option>
-              <option value="high">Alta</option>
-              <option value="urgent">Urgente 🔥</option>
-              <option value="low">Baixa</option>
-            </select>
-          </div>
-
-          {/* Submit Button */}
-          <button
-            type="submit"
-            className="interactive-tap min-h-[42px] px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold rounded-xl shadow-glow-brand transition-all flex items-center justify-center gap-1.5 ml-auto"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Adicionar</span>
-          </button>
-        </div>
-      </form>
-
-      {/* Section: Foco de Hoje (Prioridades - 1 col on mobile, 3 cols on tablet/desktop) */}
-      {focusTasks.length > 0 && (
-        <div className="space-y-2.5">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold uppercase tracking-wider text-honey-600 dark:text-honey-400 flex items-center gap-1.5 font-mono">
-              <Flame className="w-3.5 h-3.5 fill-honey-500 text-honey-500" />
-              Prioridades Principais ({focusTasks.length}/3)
-            </span>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
-            {focusTasks.map((task) => {
-              const isDone = task.status === 'completed';
-              return (
-                <div
-                  key={task.id}
-                  className={`p-3 sm:p-3.5 rounded-2xl border transition-all flex flex-col justify-between ${
-                    isDone
-                      ? 'bg-canvas-subtle/50 dark:bg-night-card/40 border-canvas-subtle dark:border-night-border text-ink-muted'
-                      : 'bg-gradient-to-br from-amber-50/80 to-white dark:from-amber-950/20 dark:to-night-surface border-amber-200/90 dark:border-amber-800/40 text-ink-primary dark:text-white shadow-soft'
-                  }`}
-                >
-                  <div className="flex items-start gap-2.5">
-                    <button
-                      onClick={() => handleToggle(task)}
-                      className="min-h-[36px] min-w-[36px] flex items-center justify-center -ml-1 text-amber-500 hover:text-emerald-600 transition-colors flex-shrink-0"
-                      aria-label={isDone ? 'Desmarcar prioridade' : 'Concluir prioridade'}
-                    >
-                      {isDone ? (
-                        <CheckCircle2 className="w-5 h-5 text-mint-500" />
-                      ) : (
-                        <Circle className="w-5 h-5" />
-                      )}
-                    </button>
-                    <p
-                      className={`text-xs font-semibold leading-snug flex-1 break-words pt-1.5 ${
-                        isDone ? 'line-through text-ink-muted' : ''
-                      }`}
-                    >
-                      {task.title}
-                    </p>
-                  </div>
-
-                  <div className="flex items-center justify-between mt-3 pt-2 border-t border-amber-100/80 dark:border-night-border text-[10px]">
-                    <span className="font-mono text-ink-muted flex items-center gap-1">
-                      {task.plannedTime && <Clock className="w-3 h-3 text-brand-400" />}
-                      {task.plannedTime || 'Sem horário'}
-                    </span>
-                    <button
-                      onClick={() => toggleFocus(task.id)}
-                      className="text-coral-500 hover:text-coral-600 font-medium py-1 px-1.5"
-                    >
-                      Remover foco
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Section: Próximos Compromissos e Horários */}
-      {todayEvents.length > 0 && (
-        <div className="space-y-2.5">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold uppercase tracking-wider text-brand-600 dark:text-brand-400 flex items-center gap-1.5 font-mono">
-              <CalendarIcon className="w-3.5 h-3.5 text-brand-500" />
-              Cronograma do Dia
-            </span>
-            <button
-              onClick={() => setCurrentView('schedule')}
-              className="text-xs text-brand-600 dark:text-brand-400 hover:underline flex items-center gap-1 font-medium py-1"
-            >
-              Abrir agenda <ArrowRight className="w-3 h-3" />
-            </button>
-          </div>
-
-          <div className="space-y-2">
-            {todayEvents.map((evt) => (
-              <div
-                key={evt.id}
-                className="flex items-center justify-between p-3 bg-white dark:bg-night-surface border border-canvas-subtle dark:border-night-border rounded-xl text-xs shadow-soft hover:border-brand-200 transition-colors gap-2"
-              >
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <span className="font-mono text-[11px] font-semibold text-brand-600 dark:text-brand-400 bg-brand-50 dark:bg-brand-950/40 px-2 py-0.5 rounded-md border border-brand-100 dark:border-brand-900/40 flex-shrink-0">
-                    {evt.startTime} — {evt.endTime}
-                  </span>
-                  <span className="font-medium text-ink-primary dark:text-white truncate">
-                    {evt.title}
-                  </span>
-                </div>
-                {evt.isFixed ? (
-                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-coral-50 dark:bg-coral-950/40 text-coral-600 dark:text-coral-400 font-mono font-medium border border-coral-200/50 flex-shrink-0">
-                    Fixo
-                  </span>
-                ) : (
-                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-canvas-subtle dark:bg-night-card text-ink-muted font-mono flex-shrink-0">
-                    Foco
-                  </span>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Section: Lista de Tarefas do Dia */}
-      <div className="space-y-2.5">
-        <div className="flex items-center justify-between">
-          <span className="text-xs font-semibold uppercase tracking-wider text-ink-secondary dark:text-ink-muted font-mono">
-            Tarefas ({completedCount}/{totalCount})
+      {/* ========================================================================= */}
+      {/* 3. CRONOGRAMA LOGO ABAIXO (Main Content)                                  */}
+      {/* Clear chronological sequence, subtle clean borders, no clutter            */}
+      {/* ========================================================================= */}
+      <section className="space-y-3">
+        <div className="flex items-center justify-between px-1">
+          <span className="text-[11px] font-mono uppercase tracking-wider text-stone-400 dark:text-stone-500 font-semibold">
+            Cronograma ({scheduleItems.filter((i) => i.isCompleted).length}/{scheduleItems.length})
           </span>
         </div>
 
-        {todayTasks.length === 0 ? (
-          <div className="py-12 sm:py-14 text-center border border-dashed border-canvas-subtle dark:border-night-border rounded-2xl bg-white/40 dark:bg-night-surface/40 p-4">
-            <Sparkles className="w-6 h-6 text-brand-400 mx-auto mb-2 opacity-80" />
-            <p className="text-sm font-serif text-ink-primary dark:text-white font-medium">
-              Nenhuma tarefa pendente para hoje
+        {/* Schedule List or Empty State */}
+        {scheduleItems.length === 0 ? (
+          <div className="py-12 text-center rounded-2xl border border-dashed border-canvas-subtle dark:border-night-border/60 bg-white/30 dark:bg-night-surface/30 p-6">
+            <Clock className="w-7 h-7 text-brand-500/50 mx-auto mb-2.5" />
+            <p className="text-sm font-medium text-ink-primary dark:text-stone-200">
+              Nenhum compromisso ou tarefa para hoje
             </p>
-            <p className="text-xs text-ink-muted mt-0.5">
-              Adicione uma atividade no campo acima para começar seu dia.
+            <p className="text-xs text-stone-400 dark:text-stone-500 mt-1">
+              Use o botão abaixo para organizar seu cronograma.
             </p>
           </div>
         ) : (
           <div className="space-y-2">
-            {todayTasks.map((task) => {
-              const isDone = task.status === 'completed';
-              const isFocus = state.preferences.focusTaskIds.includes(task.id);
-              const pInfo = priorityStyles[task.priority];
+            {scheduleItems.map((item) => {
+              const isEditing = editingId === item.id;
+              const hasTime = item.startTime !== '99:99';
 
               return (
                 <div
-                  key={task.id}
-                  className={`group flex items-start sm:items-center justify-between p-3 sm:p-3.5 rounded-2xl border transition-all gap-2.5 ${
-                    isDone
-                      ? 'bg-canvas-subtle/40 dark:bg-night-card/30 border-canvas-subtle dark:border-night-border text-ink-muted'
-                      : 'bg-white dark:bg-night-surface border-canvas-subtle dark:border-night-border hover:border-brand-300 text-ink-primary dark:text-white shadow-soft'
+                  key={item.id}
+                  className={`group relative flex items-center justify-between p-3 sm:p-3.5 rounded-xl border transition-all duration-150 gap-3 ${
+                    item.isCompleted
+                      ? 'bg-canvas-subtle/30 dark:bg-night-card/25 border-canvas-subtle dark:border-night-border/40 text-stone-400 dark:text-stone-500'
+                      : 'bg-white dark:bg-night-surface/90 border-canvas-subtle dark:border-night-border hover:border-brand-500/40 text-ink-primary dark:text-stone-100 shadow-soft'
                   }`}
                 >
-                  {/* Left Side: Checkbox + Title + Priority */}
-                  <div className="flex items-start gap-2.5 min-w-0 flex-1">
-                    <button
-                      onClick={() => handleToggle(task)}
-                      className="min-h-[38px] min-w-[38px] flex items-center justify-center -ml-1 text-ink-faint hover:text-mint-500 transition-colors flex-shrink-0"
-                      aria-label={isDone ? 'Desmarcar tarefa' : 'Concluir tarefa'}
-                    >
-                      {isDone ? (
-                        <CheckCircle2 className="w-5 h-5 text-mint-500" />
-                      ) : (
-                        <Circle className="w-5 h-5 hover:text-brand-500" />
-                      )}
-                    </button>
+                  {isEditing ? (
+                    // Inline Edit Mode
+                    <div className="flex items-center gap-2 flex-1 w-full min-w-0">
+                      <input
+                        type="time"
+                        value={editingTime}
+                        onChange={(e) => setEditingTime(e.target.value)}
+                        className="text-xs font-mono px-2 py-1 bg-canvas-light dark:bg-night-card border border-canvas-subtle dark:border-night-border rounded-lg text-ink-primary dark:text-stone-100 outline-none w-20"
+                      />
+                      <input
+                        type="text"
+                        autoFocus
+                        value={editingTitle}
+                        onChange={(e) => setEditingTitle(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleSaveEdit(item);
+                          if (e.key === 'Escape') setEditingId(null);
+                        }}
+                        className="flex-1 text-xs sm:text-sm px-2.5 py-1 bg-canvas-light dark:bg-night-card border border-brand-500/50 rounded-lg text-ink-primary dark:text-stone-100 outline-none"
+                      />
+                      <button
+                        onClick={() => handleSaveEdit(item)}
+                        className="p-1.5 text-mint-500 hover:text-mint-600 rounded-lg"
+                        title="Salvar"
+                      >
+                        <Check className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => setEditingId(null)}
+                        className="p-1.5 text-stone-400 hover:text-stone-300 rounded-lg"
+                        title="Cancelar"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    // Standard Row
+                    <>
+                      {/* Left: Checkbox + Time + Title */}
+                      <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                        <button
+                          onClick={() => handleToggleItem(item)}
+                          className="min-h-[36px] min-w-[36px] flex items-center justify-center -ml-1 text-stone-300 dark:text-stone-600 hover:text-mint-500 transition-colors flex-shrink-0"
+                          aria-label={item.isCompleted ? 'Desmarcar' : 'Concluir'}
+                        >
+                          {item.isCompleted ? (
+                            <CheckCircle2 className="w-5 h-5 text-mint-500" />
+                          ) : (
+                            <Circle className="w-5 h-5 hover:text-brand-500 transition-colors" />
+                          )}
+                        </button>
 
-                    <div className="min-w-0 flex-1 pt-2 sm:pt-0">
-                      <div className="flex items-baseline gap-1.5 flex-wrap">
+                        {/* Chronological Time Badge */}
                         <span
-                          className={`text-xs sm:text-sm font-medium break-words ${
-                            isDone ? 'line-through text-ink-muted' : ''
+                          className={`font-mono text-xs px-2 py-0.5 rounded-md border flex-shrink-0 ${
+                            hasTime
+                              ? 'text-brand-600 dark:text-brand-400 bg-brand-500/10 border-brand-500/20 font-semibold'
+                              : 'text-stone-400 dark:text-stone-600 bg-transparent border-transparent text-[11px]'
                           }`}
                         >
-                          {task.title}
+                          {hasTime
+                            ? item.endTime
+                              ? `${item.startTime} — ${item.endTime}`
+                              : item.startTime
+                            : 'Hoje'}
                         </span>
 
-                        {/* Priority Badge */}
-                        <span
-                          className={`text-[9px] px-1.5 py-0.5 rounded-md font-mono uppercase font-semibold flex-shrink-0 ${pInfo.badge}`}
+                        {/* Title and tags */}
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span
+                              className={`text-xs sm:text-sm font-medium break-words leading-tight ${
+                                item.isCompleted
+                                  ? 'line-through text-stone-400 dark:text-stone-500'
+                                  : 'text-ink-primary dark:text-stone-100'
+                              }`}
+                            >
+                              {item.title}
+                            </span>
+
+                            {/* Priority / Fixed Badge */}
+                            {item.isFixed && (
+                              <span className="text-[9px] px-1.5 py-0.2 rounded font-mono uppercase bg-amber-500/10 text-amber-500 dark:text-amber-400 border border-amber-500/20">
+                                Fixo
+                              </span>
+                            )}
+                            {item.priority && item.priority !== 'normal' && (
+                              <span
+                                className={`text-[9px] px-1.5 py-0.2 rounded font-mono uppercase border ${
+                                  priorityBadge[item.priority]?.class || ''
+                                }`}
+                              >
+                                {priorityBadge[item.priority]?.label}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Right: Quick actions (Edit, Focus toggle for tasks, Delete) */}
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        {/* Focus / Flame indicator for tasks */}
+                        {item.source === 'task' && item.originalTask && !item.isCompleted && (
+                          <button
+                            onClick={() => toggleFocus(item.originalTask!.id)}
+                            className={`min-h-[32px] min-w-[32px] flex items-center justify-center rounded-lg transition-colors ${
+                              item.isFocus
+                                ? 'text-amber-500 hover:text-amber-400'
+                                : 'text-stone-400/60 hover:text-amber-500 opacity-80 sm:opacity-0 sm:group-hover:opacity-100'
+                            }`}
+                            title={item.isFocus ? 'Remover das prioridades' : 'Marcar foco'}
+                            aria-label="Foco"
+                          >
+                            <Flame className={`w-3.5 h-3.5 ${item.isFocus ? 'fill-amber-500' : ''}`} />
+                          </button>
+                        )}
+
+                        {/* Edit Button */}
+                        <button
+                          onClick={() => handleStartEdit(item)}
+                          className="min-h-[32px] min-w-[32px] flex items-center justify-center text-stone-400 hover:text-brand-400 opacity-80 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity rounded-lg"
+                          title="Editar"
+                          aria-label="Editar"
                         >
-                          {pInfo.label}
-                        </span>
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+
+                        {/* Delete Button */}
+                        <button
+                          onClick={() => handleDeleteItem(item)}
+                          className="min-h-[32px] min-w-[32px] flex items-center justify-center text-stone-400 hover:text-red-400 opacity-80 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity rounded-lg"
+                          title="Excluir"
+                          aria-label="Excluir"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       </div>
-                    </div>
-                  </div>
-
-                  {/* Right Side / Actions: Time pill, Focus toggle, Delete */}
-                  <div className="flex items-center gap-1.5 flex-shrink-0 pt-1 sm:pt-0">
-                    {/* Time Picker / Pill */}
-                    {task.plannedTime ? (
-                      <span className="text-[10px] font-mono px-2 py-1 rounded-lg bg-canvas-light dark:bg-night-card text-brand-600 dark:text-brand-400 border border-canvas-subtle dark:border-night-border flex items-center gap-1 font-semibold">
-                        <Clock className="w-3 h-3 text-brand-500" /> {task.plannedTime}
-                      </span>
-                    ) : (
-                      <div className="relative">
-                        <input
-                          type="time"
-                          title="Agendar horário"
-                          onChange={(e) => updateTask(task.id, { plannedTime: e.target.value })}
-                          className="text-[10px] text-ink-muted hover:text-brand-600 bg-transparent border-none outline-none font-mono opacity-80 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity w-14 cursor-pointer"
-                        />
-                      </div>
-                    )}
-
-                    {/* Star / Focus Button (touch-friendly min-h-[36px]) */}
-                    {!isDone && (
-                      <button
-                        onClick={() => toggleFocus(task.id)}
-                        className={`min-h-[36px] px-2 py-1 text-[11px] rounded-lg transition-all flex items-center justify-center ${
-                          isFocus
-                            ? 'bg-honey-100 text-honey-700 dark:bg-honey-950 dark:text-honey-300 font-semibold'
-                            : 'text-ink-muted hover:text-honey-600 opacity-90 sm:opacity-0 sm:group-hover:opacity-100'
-                        }`}
-                        title={isFocus ? 'Remover das prioridades' : 'Definir como foco de hoje'}
-                        aria-label="Alternar prioridade"
-                      >
-                        ★
-                      </button>
-                    )}
-
-                    {/* Delete Task */}
-                    <button
-                      onClick={() => deleteTask(task.id)}
-                      className="min-h-[36px] min-w-[36px] flex items-center justify-center text-ink-muted hover:text-coral-500 opacity-90 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity p-1 rounded-lg"
-                      title="Excluir tarefa"
-                      aria-label="Excluir tarefa"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
+                    </>
+                  )}
                 </div>
               );
             })}
           </div>
         )}
-      </div>
+      </section>
+
+      {/* ========================================================================= */}
+      {/* 4. ADICIONAR TAREFA NA PARTE INFERIOR                                     */}
+      {/* Discreet, aligned with dark premium aesthetic, below the schedule         */}
+      {/* ========================================================================= */}
+      <section className="pt-2">
+        {!showAddForm ? (
+          <button
+            onClick={() => setShowAddForm(true)}
+            className="interactive-tap w-full py-3 px-4 rounded-xl border border-dashed border-canvas-subtle dark:border-night-border hover:border-brand-500/60 bg-white/40 dark:bg-night-surface/50 hover:bg-brand-500/5 text-xs sm:text-sm font-medium text-stone-500 dark:text-stone-400 hover:text-brand-600 dark:hover:text-brand-400 flex items-center justify-center gap-2 transition-all shadow-sm"
+          >
+            <Plus className="w-4 h-4 text-brand-500" />
+            <span>Adicionar tarefa</span>
+          </button>
+        ) : (
+          <form
+            onSubmit={handleAddTaskSubmit}
+            className="bg-white dark:bg-night-surface/95 border border-brand-500/40 rounded-xl p-3 sm:p-4 shadow-soft space-y-3 animate-fadeIn"
+          >
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                required
+                autoFocus
+                placeholder="O que precisa ser feito hoje?"
+                value={taskTitle}
+                onChange={(e) => setTaskTitle(e.target.value)}
+                className="w-full text-xs sm:text-sm bg-transparent border-none outline-none text-ink-primary dark:text-stone-100 placeholder:text-stone-400 dark:placeholder:text-stone-500 py-1"
+              />
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-canvas-subtle dark:border-night-border">
+              <div className="flex items-center gap-2 flex-wrap">
+                {/* Time Picker */}
+                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-canvas-light dark:bg-night-card border border-canvas-subtle dark:border-night-border min-h-[34px]">
+                  <Clock className="w-3.5 h-3.5 text-brand-500" />
+                  <input
+                    type="time"
+                    value={taskTime}
+                    onChange={(e) => setTaskTime(e.target.value)}
+                    title="Horário planejado (opcional)"
+                    className="text-xs bg-transparent border-none outline-none font-mono w-16 text-ink-primary dark:text-stone-100"
+                  />
+                </div>
+
+                {/* Priority */}
+                <select
+                  value={taskPriority}
+                  onChange={(e) => setTaskPriority(e.target.value as Priority)}
+                  className="text-xs px-2.5 py-1 bg-canvas-light dark:bg-night-card border border-canvas-subtle dark:border-night-border rounded-lg text-ink-primary dark:text-stone-100 outline-none cursor-pointer min-h-[34px]"
+                >
+                  <option value="normal">Prioridade Normal</option>
+                  <option value="high">Prioridade Alta</option>
+                  <option value="urgent">Urgente 🔥</option>
+                  <option value="low">Baixa</option>
+                </select>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center gap-2 ml-auto">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowAddForm(false);
+                    setTaskTitle('');
+                    setTaskTime('');
+                  }}
+                  className="px-3 py-1.5 text-xs text-stone-400 hover:text-stone-300 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="interactive-tap px-4 py-1.5 bg-brand-600 hover:bg-brand-500 text-white text-xs font-semibold rounded-lg shadow-sm transition-all flex items-center gap-1.5"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Salvar</span>
+                </button>
+              </div>
+            </div>
+          </form>
+        )}
+      </section>
     </div>
   );
 };
