@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="description" content="Personal Life OS - To-do, calendário time-blocking, diário pessoal com persistência offline e PWA." />
+    
+    <!-- PWA & Mobile Theme Meta -->
+    <meta name="theme-color" content="#0D0E15" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#FAF8F5" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0D0E15" />
+    
+    <!-- Apple Web App Support -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Life OS" />
+    <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
+    
+    <!-- Standard PWA Manifest & Icons (Relative for GitHub Pages compatibility) -->
+    <link rel="manifest" href="./manifest.json" />
+    <link rel="icon" type="image/svg+xml" href="./icon.svg" />
+    <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png" />
+
+    <title>Life OS — Organização e Clareza Pessoal</title>
+
+    <!-- Google Fonts Preconnect & Load -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400..600;1,6..72,400&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  </head>
+  <body class="bg-canvas-light text-ink-primary dark:bg-night-base dark:text-white antialiased selection:bg-brand-100 dark:selection:bg-brand-900">
+    <div id="root"></div>
+    <script type="module" src="./src/main.tsx"></script>
+  </body>
+</html>
