@@ -43,7 +43,7 @@ export const AppContent: React.FC = () => {
       return 'Cronograma';
     }
     if (currentView === 'journal') {
-      return 'Diário';
+      return 'Anotações';
     }
     return 'Hoje';
   };

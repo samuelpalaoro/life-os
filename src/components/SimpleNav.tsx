@@ -39,7 +39,7 @@ export const SimpleNav: React.FC<SimpleNavProps> = ({
     },
     {
       id: 'journal',
-      label: 'Diário',
+      label: 'Anotações',
       icon: BookOpen,
     },
   ];
@@ -78,7 +78,7 @@ export const SimpleNav: React.FC<SimpleNavProps> = ({
                 Life OS
               </h1>
               <p className="text-[10px] text-brand-600 dark:text-brand-400 mt-1 font-mono tracking-wide font-medium">
-                Tarefas • Agenda • Diário
+                Tarefas • Agenda • Anotações
               </p>
             </div>
           </div>
