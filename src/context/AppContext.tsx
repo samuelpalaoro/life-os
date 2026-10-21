@@ -34,6 +34,7 @@ interface AppContextType {
   addEvent: (event: Omit<CalendarEvent, 'id'>) => CalendarEvent;
   updateEvent: (id: string, updates: Partial<CalendarEvent>) => void;
   deleteEvent: (id: string) => void;
+  deleteEventSeries: (recurrenceGroupId: string) => void;
   toggleEventCompleted: (id: string) => void;
   associateTaskToCalendar: (task: Task, date: string, startTime: string, durationMinutes?: number) => CalendarEvent;
 
@@ -299,6 +300,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     updateState((prev) => ({
       ...prev,
       events: prev.events.filter((e) => e.id !== id),
+    }));
+  }, [updateState]);
+
+  const deleteEventSeries = useCallback((recurrenceGroupId: string) => {
+    updateState((prev) => ({
+      ...prev,
+      events: prev.events.filter((e) => e.recurrenceGroupId !== recurrenceGroupId),
     }));
   }, [updateState]);
 
@@ -606,6 +614,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       addEvent,
       updateEvent,
       deleteEvent,
+      deleteEventSeries,
       toggleEventCompleted,
       associateTaskToCalendar,
       addJournalEntry,
@@ -656,6 +665,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       addEvent,
       updateEvent,
       deleteEvent,
+      deleteEventSeries,
       toggleEventCompleted,
       associateTaskToCalendar,
       addJournalEntry,
