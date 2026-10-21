@@ -55,20 +55,11 @@ export const AppContent: React.FC = () => {
 
       {/* Main Content Viewport */}
       <div className="flex-1 flex flex-col min-w-0 lg:pl-64">
-        {/* Mobile Top Header (Clean, Compact with Brand, Page Title & Settings) */}
+        {/* Mobile Top Header (Clean, Compact with Page Title & Settings) */}
         <header className="lg:hidden sticky top-0 z-30 px-4 py-3 bg-white/90 dark:bg-night-surface/90 backdrop-blur-md border-b border-canvas-subtle dark:border-night-border flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded-lg bg-gradient-to-tr from-brand-600 to-brand-400 text-white flex items-center justify-center font-serif text-xs font-bold shadow-sm">
-              L
-            </div>
-            <span className="font-serif font-bold text-sm tracking-tight text-ink-primary dark:text-white">
-              Life OS
-            </span>
-            <span className="text-stone-300 dark:text-night-border">•</span>
-            <span className="text-xs uppercase font-mono text-brand-600 dark:text-brand-400 font-semibold tracking-wide">
-              {getPageTitle()}
-            </span>
-          </div>
+          <span className="text-sm font-semibold text-ink-primary dark:text-white tracking-tight">
+            {getPageTitle()}
+          </span>
 
           <div className="flex items-center gap-1">
             {pwaState.canInstall && (

@@ -59,20 +59,10 @@ export const Navigation: React.FC<NavigationProps> = ({ onOpenSettings }) => {
       {/* ========================================================= */}
       <aside className="hidden lg:flex fixed top-0 bottom-0 left-0 z-40 w-64 bg-white/95 dark:bg-night-surface/95 backdrop-blur-md border-r border-canvas-subtle dark:border-night-border flex-col">
         {/* Brand Header */}
-        <div className="p-5 flex items-center justify-between border-b border-canvas-subtle dark:border-night-border">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-brand-600 to-brand-400 text-white flex items-center justify-center font-serif text-sm font-bold shadow-glow-brand">
-              L
-            </div>
-            <div>
-              <h1 className="text-sm font-semibold tracking-tight text-ink-primary dark:text-white leading-none">
-                Life OS
-              </h1>
-              <p className="text-[10px] text-brand-600 dark:text-brand-400 mt-1 font-mono tracking-wide font-medium">
-                Tarefas • Agenda • Anotações
-              </p>
-            </div>
-          </div>
+        <div className="px-5 py-4 border-b border-canvas-subtle dark:border-night-border">
+          <p className="text-[10px] text-stone-400 dark:text-stone-500 font-mono tracking-widest uppercase">
+            Tarefas • Agenda • Anotações
+          </p>
         </div>
 
         {/* Desktop Navigation Links */}

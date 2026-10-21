@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   ChevronLeft,
   ChevronRight,
@@ -6,14 +6,30 @@ import {
   Clock,
   CheckCircle2,
   Trash2,
+  CalendarDays,
+  X,
 } from 'lucide-react';
 import {
   format,
   addDays,
   subDays,
+  addWeeks,
+  subWeeks,
   startOfWeek,
   endOfWeek,
   eachDayOfInterval,
+  startOfYear,
+  endOfYear,
+  eachMonthOfInterval,
+  eachWeekOfInterval,
+  getYear,
+  setYear,
+  isSameMonth,
+  isSameWeek,
+  isToday,
+  parseISO,
+  startOfMonth,
+  endOfMonth,
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { useApp } from '../../context/AppContext';
@@ -29,10 +45,10 @@ export const ScheduleView: React.FC = () => {
   } = useApp();
 
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
-  // Default to day view on all screens, toggleable to week
   const [viewMode, setViewMode] = useState<'day' | 'week'>('day');
+  const [showYearPicker, setShowYearPicker] = useState(false);
 
-  // Form state for creating an activity/time block (positioned at bottom)
+  // Form state
   const [showAddForm, setShowAddForm] = useState(false);
   const [eventTitle, setEventTitle] = useState('');
   const [eventDate, setEventDate] = useState(getTodayKey());
@@ -41,20 +57,49 @@ export const ScheduleView: React.FC = () => {
   const [eventTaskId, setEventTaskId] = useState('');
   const [eventIsFixed, setEventIsFixed] = useState(false);
 
+  const yearPickerRef = useRef<HTMLDivElement>(null);
+
   const todayKey = getTodayKey();
+  const today = new Date();
   const selectedDateStr = format(currentDate, 'yyyy-MM-dd');
+  const currentYear = getYear(currentDate);
+
+  // All months of the current year
+  const months = eachMonthOfInterval({
+    start: startOfYear(currentDate),
+    end: endOfYear(currentDate),
+  });
+
+  // All weeks of the current year
+  const weeksOfYear = eachWeekOfInterval(
+    { start: startOfYear(currentDate), end: endOfYear(currentDate) },
+    { weekStartsOn: 1 }
+  );
 
   // Navigate dates
   const handlePrev = () => {
-    setCurrentDate((d) => (viewMode === 'day' ? subDays(d, 1) : subDays(d, 7)));
+    setCurrentDate((d) => (viewMode === 'day' ? subDays(d, 1) : subWeeks(d, 1)));
   };
 
   const handleNext = () => {
-    setCurrentDate((d) => (viewMode === 'day' ? addDays(d, 1) : addDays(d, 7)));
+    setCurrentDate((d) => (viewMode === 'day' ? addDays(d, 1) : addWeeks(d, 1)));
   };
 
   const handleToday = () => {
     setCurrentDate(new Date());
+    setShowYearPicker(false);
+  };
+
+  // Jump to a specific week
+  const handleJumpToWeek = (weekStart: Date) => {
+    setCurrentDate(weekStart);
+    setShowYearPicker(false);
+    setViewMode('week');
+  };
+
+  // Change year while keeping relative month position
+  const handleYearChange = (delta: number) => {
+    setCurrentDate((d) => setYear(d, getYear(d) + delta));
   };
 
   // Day activities sorted chronologically
@@ -62,7 +107,7 @@ export const ScheduleView: React.FC = () => {
     .filter((e) => e.date === selectedDateStr)
     .sort((a, b) => a.startTime.localeCompare(b.startTime));
 
-  // Week Interval
+  // Week interval
   const weekStart = startOfWeek(currentDate, { weekStartsOn: 1 });
   const weekEnd = endOfWeek(currentDate, { weekStartsOn: 1 });
   const weekDays = eachDayOfInterval({ start: weekStart, end: weekEnd });
@@ -98,68 +143,184 @@ export const ScheduleView: React.FC = () => {
     }
   };
 
+  // ── YEAR PICKER PANEL ───────────────────────────────────────────────────────
+  const YearPickerPanel = () => (
+    <div
+      ref={yearPickerRef}
+      className="absolute top-full left-0 right-0 mt-2 z-50 bg-white dark:bg-night-surface border border-canvas-subtle dark:border-night-border rounded-2xl shadow-elevated p-4 animate-fadeIn"
+    >
+      {/* Year navigation */}
+      <div className="flex items-center justify-between mb-4">
+        <button
+          onClick={() => handleYearChange(-1)}
+          className="p-1.5 rounded-lg hover:bg-canvas-subtle dark:hover:bg-night-card text-stone-400 hover:text-brand-500 transition-colors"
+          aria-label="Ano anterior"
+        >
+          <ChevronLeft className="w-4 h-4" />
+        </button>
+        <span className="text-sm font-bold font-mono text-ink-primary dark:text-white">
+          {currentYear}
+        </span>
+        <button
+          onClick={() => handleYearChange(1)}
+          className="p-1.5 rounded-lg hover:bg-canvas-subtle dark:hover:bg-night-card text-stone-400 hover:text-brand-500 transition-colors"
+          aria-label="Próximo ano"
+        >
+          <ChevronRight className="w-4 h-4" />
+        </button>
+      </div>
+
+      {/* Month grid – click a month to expand its weeks */}
+      <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 mb-4">
+        {months.map((month) => {
+          const isCurrentMonth = isSameMonth(month, currentDate);
+          const isTodayMonth = isSameMonth(month, today);
+          return (
+            <button
+              key={month.toISOString()}
+              onClick={() => {
+                setCurrentDate(startOfMonth(month));
+                setViewMode('week');
+                setShowYearPicker(false);
+              }}
+              className={`py-2 px-1 rounded-xl text-xs font-semibold transition-all border ${
+                isCurrentMonth
+                  ? 'bg-brand-600 text-white border-brand-600 shadow-soft'
+                  : isTodayMonth
+                  ? 'bg-coral-50 dark:bg-coral-950/30 text-coral-600 border-coral-200 dark:border-coral-800'
+                  : 'bg-canvas-subtle dark:bg-night-card text-ink-secondary dark:text-stone-400 border-canvas-subtle dark:border-night-border hover:border-brand-400 hover:text-brand-600 dark:hover:text-brand-400'
+              }`}
+            >
+              {format(month, 'MMM', { locale: ptBR }).replace('.', '')}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Week list for current month */}
+      <div className="border-t border-canvas-subtle dark:border-night-border pt-3">
+        <p className="text-[10px] uppercase font-mono text-stone-400 dark:text-stone-500 tracking-widest mb-2">
+          Semanas de {format(currentDate, 'MMMM', { locale: ptBR })}
+        </p>
+        <div className="space-y-1 max-h-48 overflow-y-auto no-scrollbar">
+          {weeksOfYear
+            .filter((wk) => isSameMonth(wk, startOfMonth(currentDate)))
+            .map((wk) => {
+              const wkEnd = endOfWeek(wk, { weekStartsOn: 1 });
+              const isActive = isSameWeek(wk, currentDate, { weekStartsOn: 1 });
+              const hasTodayInWeek = isSameWeek(wk, today, { weekStartsOn: 1 });
+              return (
+                <button
+                  key={wk.toISOString()}
+                  onClick={() => handleJumpToWeek(wk)}
+                  className={`w-full text-left px-3 py-2 rounded-xl text-xs transition-all flex items-center justify-between gap-2 ${
+                    isActive
+                      ? 'bg-brand-500/15 text-brand-600 dark:text-brand-400 font-semibold border border-brand-500/30'
+                      : 'hover:bg-canvas-subtle dark:hover:bg-night-card text-ink-secondary dark:text-stone-400'
+                  }`}
+                >
+                  <span className="font-mono">
+                    {format(wk, 'd MMM', { locale: ptBR })} – {format(wkEnd, 'd MMM', { locale: ptBR })}
+                  </span>
+                  {hasTodayInWeek && (
+                    <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-coral-500 text-white font-bold">
+                      hoje
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <div className="w-full max-w-3xl mx-auto space-y-4 sm:space-y-5 animate-fadeIn pb-8">
       {/* ========================================================================= */}
-      {/* 1 & 2. COMPACT NAVIGATION BAR (Clean Top Area, Full Focus on Content)     */}
+      {/* 1. COMPACT NAVIGATION BAR                                                 */}
       {/* ========================================================================= */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between bg-white dark:bg-night-surface p-2 sm:p-2.5 rounded-2xl border border-canvas-subtle dark:border-night-border shadow-soft gap-2">
-        <div className="flex items-center justify-between sm:justify-start gap-1 sm:gap-2">
-          <div className="flex items-center gap-1">
-            <button
-              onClick={handleToday}
-              className="interactive-tap min-h-[36px] px-3 py-1 text-xs font-semibold bg-canvas-subtle dark:bg-night-card hover:bg-brand-500/10 text-ink-primary dark:text-stone-200 rounded-lg transition-colors border border-canvas-subtle dark:border-night-border"
-            >
-              Hoje
-            </button>
-            <div className="flex items-center">
+      <div className="relative">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between bg-white dark:bg-night-surface p-2 sm:p-2.5 rounded-2xl border border-canvas-subtle dark:border-night-border shadow-soft gap-2">
+          <div className="flex items-center justify-between sm:justify-start gap-1 sm:gap-2">
+            <div className="flex items-center gap-1">
               <button
-                onClick={handlePrev}
-                className="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg text-stone-400 hover:text-brand-500 hover:bg-canvas-subtle dark:hover:bg-night-card transition-colors"
-                aria-label="Anterior"
+                onClick={handleToday}
+                className="interactive-tap min-h-[36px] px-3 py-1 text-xs font-semibold bg-canvas-subtle dark:bg-night-card hover:bg-brand-500/10 text-ink-primary dark:text-stone-200 rounded-lg transition-colors border border-canvas-subtle dark:border-night-border"
               >
-                <ChevronLeft className="w-4 h-4" />
+                Hoje
+              </button>
+              <div className="flex items-center">
+                <button
+                  onClick={handlePrev}
+                  className="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg text-stone-400 hover:text-brand-500 hover:bg-canvas-subtle dark:hover:bg-night-card transition-colors"
+                  aria-label="Anterior"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={handleNext}
+                  className="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg text-stone-400 hover:text-brand-500 hover:bg-canvas-subtle dark:hover:bg-night-card transition-colors"
+                  aria-label="Próximo"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Date label + year picker trigger */}
+            <button
+              onClick={() => setShowYearPicker((v) => !v)}
+              className="flex items-center gap-1.5 min-h-[36px] px-2 rounded-lg hover:bg-canvas-subtle dark:hover:bg-night-card transition-colors group"
+              aria-label="Abrir seletor de data"
+            >
+              <span className="text-xs sm:text-sm font-semibold text-ink-primary dark:text-stone-100 capitalize truncate">
+                {viewMode === 'day'
+                  ? format(currentDate, "EEE, d 'de' MMMM", { locale: ptBR })
+                  : `${format(weekStart, 'd MMM', { locale: ptBR })} — ${format(weekEnd, 'd MMM', { locale: ptBR })}`}
+              </span>
+              <CalendarDays className="w-3.5 h-3.5 text-stone-400 group-hover:text-brand-500 transition-colors flex-shrink-0" />
+            </button>
+          </div>
+
+          {/* View Switcher (Day / Week) */}
+          <div className="flex items-center gap-1 self-stretch sm:self-auto">
+            {showYearPicker && (
+              <button
+                onClick={() => setShowYearPicker(false)}
+                className="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg text-stone-400 hover:text-red-400 transition-colors sm:hidden"
+                aria-label="Fechar"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+            <div className="flex items-center justify-center flex-1 sm:flex-initial bg-canvas-subtle dark:bg-night-card p-1 rounded-xl text-xs border border-canvas-subtle dark:border-night-border">
+              <button
+                onClick={() => setViewMode('day')}
+                className={`flex-1 sm:flex-initial min-h-[32px] px-3.5 py-1 rounded-lg transition-all ${
+                  viewMode === 'day'
+                    ? 'bg-white dark:bg-night-surface text-brand-600 dark:text-brand-400 font-semibold shadow-soft'
+                    : 'text-stone-400 dark:text-stone-500 hover:text-ink-primary dark:hover:text-stone-200'
+                }`}
+              >
+                Dia
               </button>
               <button
-                onClick={handleNext}
-                className="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg text-stone-400 hover:text-brand-500 hover:bg-canvas-subtle dark:hover:bg-night-card transition-colors"
-                aria-label="Próximo"
+                onClick={() => setViewMode('week')}
+                className={`flex-1 sm:flex-initial min-h-[32px] px-3.5 py-1 rounded-lg transition-all ${
+                  viewMode === 'week'
+                    ? 'bg-white dark:bg-night-surface text-brand-600 dark:text-brand-400 font-semibold shadow-soft'
+                    : 'text-stone-400 dark:text-stone-500 hover:text-ink-primary dark:hover:text-stone-200'
+                }`}
               >
-                <ChevronRight className="w-4 h-4" />
+                Semana
               </button>
             </div>
           </div>
-
-          <span className="text-xs sm:text-sm font-semibold text-ink-primary dark:text-stone-100 capitalize truncate ml-1">
-            {viewMode === 'day'
-              ? format(currentDate, "EEE, d 'de' MMMM", { locale: ptBR })
-              : `${format(weekStart, 'd MMM', { locale: ptBR })} — ${format(weekEnd, 'd MMM', { locale: ptBR })}`}
-          </span>
         </div>
 
-        {/* View Switcher (Day / Week) */}
-        <div className="flex items-center justify-center self-stretch sm:self-auto bg-canvas-subtle dark:bg-night-card p-1 rounded-xl text-xs border border-canvas-subtle dark:border-night-border">
-          <button
-            onClick={() => setViewMode('day')}
-            className={`flex-1 sm:flex-initial min-h-[32px] px-3.5 py-1 rounded-lg transition-all ${
-              viewMode === 'day'
-                ? 'bg-white dark:bg-night-surface text-brand-600 dark:text-brand-400 font-semibold shadow-soft'
-                : 'text-stone-400 dark:text-stone-500 hover:text-ink-primary dark:hover:text-stone-200'
-            }`}
-          >
-            Dia
-          </button>
-          <button
-            onClick={() => setViewMode('week')}
-            className={`flex-1 sm:flex-initial min-h-[32px] px-3.5 py-1 rounded-lg transition-all ${
-              viewMode === 'week'
-                ? 'bg-white dark:bg-night-surface text-brand-600 dark:text-brand-400 font-semibold shadow-soft'
-                : 'text-stone-400 dark:text-stone-500 hover:text-ink-primary dark:hover:text-stone-200'
-            }`}
-          >
-            Semana
-          </button>
-        </div>
+        {/* Year / Week Picker Panel (dropdown) */}
+        {showYearPicker && <YearPickerPanel />}
       </div>
 
       {/* Week Day Pills Strip on Mobile (Quick date switcher) */}
@@ -167,7 +328,7 @@ export const ScheduleView: React.FC = () => {
         {weekDays.map((day) => {
           const dayStr = format(day, 'yyyy-MM-dd');
           const isSelected = dayStr === selectedDateStr;
-          const isToday = dayStr === todayKey;
+          const isTodayDay = dayStr === todayKey;
 
           return (
             <button
@@ -179,7 +340,7 @@ export const ScheduleView: React.FC = () => {
               className={`flex-1 min-w-[42px] py-2 px-1 rounded-xl flex flex-col items-center justify-center text-[10px] font-mono transition-all border ${
                 isSelected
                   ? 'bg-brand-600 text-white border-brand-600 shadow-glow-brand font-bold'
-                  : isToday
+                  : isTodayDay
                   ? 'bg-coral-50 dark:bg-coral-950/30 text-coral-600 border-coral-200 dark:border-coral-800 font-bold'
                   : 'bg-white dark:bg-night-surface text-stone-400 dark:text-stone-500 border-canvas-subtle dark:border-night-border'
               }`}
@@ -279,7 +440,7 @@ export const ScheduleView: React.FC = () => {
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-7 gap-2.5">
           {weekDays.map((day) => {
             const dayStr = format(day, 'yyyy-MM-dd');
-            const isToday = dayStr === todayKey;
+            const isTodayDay = dayStr === todayKey;
             const isSelected = dayStr === selectedDateStr;
             const eventsForDay = state.events
               .filter((e) => e.date === dayStr)
@@ -295,7 +456,7 @@ export const ScheduleView: React.FC = () => {
                 className={`p-3 rounded-2xl border flex flex-col min-h-[140px] sm:min-h-[170px] cursor-pointer transition-all ${
                   isSelected
                     ? 'border-brand-500 bg-brand-500/10 dark:bg-brand-950/30 shadow-soft'
-                    : isToday
+                    : isTodayDay
                     ? 'border-coral-400 bg-coral-50/20 dark:bg-coral-950/20'
                     : 'border-canvas-subtle dark:border-night-border bg-white dark:bg-night-surface hover:border-brand-500/30'
                 }`}
@@ -306,7 +467,7 @@ export const ScheduleView: React.FC = () => {
                   </span>
                   <span
                     className={`font-mono font-bold text-xs w-6 h-6 rounded-full flex items-center justify-center ${
-                      isToday ? 'bg-coral-500 text-white' : 'text-ink-primary dark:text-stone-200'
+                      isTodayDay ? 'bg-coral-500 text-white' : 'text-ink-primary dark:text-stone-200'
                     }`}
                   >
                     {format(day, 'd')}
@@ -340,7 +501,6 @@ export const ScheduleView: React.FC = () => {
 
       {/* ========================================================================= */}
       {/* 3. NOVO HORÁRIO (Abaixo do Cronograma)                                    */}
-      {/* Secondary in visual prominence, clean dashed trigger or expanded form     */}
       {/* ========================================================================= */}
       <section className="pt-2">
         {!showAddForm ? (
